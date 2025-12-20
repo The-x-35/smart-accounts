@@ -87,8 +87,6 @@ export async function createSwigWallet(
     const existingSwig = await fetchSwig(connection, swigAddress);
     if (existingSwig) {
       // Wallet already exists, return existing wallet info
-      // We need to find a transaction signature - try to get the account info
-      const accountInfo = await connection.getAccountInfo(swigAddress);
       return {
         address: swigAddress.toString(),
         id: Array.from(swigId),
@@ -98,13 +96,19 @@ export async function createSwigWallet(
     }
   } catch (error: any) {
     // If fetchSwig throws, the wallet doesn't exist yet - continue to create it
-    // Error code 0x1 or "AccountNotFound" means we should create it
-    if (error?.message?.includes('AccountNotFound') || 
-        error?.message?.includes('not found') ||
+    // Common error messages: "Unable to fetch Swig account", "AccountNotFound", etc.
+    // If it's a "not found" type error, proceed with creation
+    const errorMessage = error?.message?.toLowerCase() || '';
+    if (errorMessage.includes('unable to fetch') ||
+        errorMessage.includes('accountnotfound') || 
+        errorMessage.includes('not found') ||
+        errorMessage.includes('does not exist') ||
         error?.code === 0x1) {
-      // Wallet doesn't exist, proceed with creation
+      // Wallet doesn't exist, proceed with creation - this is expected
+      // Continue to the creation logic below
     } else {
-      // Some other error occurred
+      // Some other unexpected error occurred (network issue, etc.)
+      console.error('Unexpected error checking for existing Swig wallet:', error);
       throw error;
     }
   }

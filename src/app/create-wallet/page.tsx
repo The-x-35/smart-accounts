@@ -87,12 +87,35 @@ function CreateWalletContent() {
             <div className="card" style={{ marginTop: '1rem', background: 'white' }}>
               <p><strong>ETH Address:</strong> {result.ethAddress}</p>
               <p><strong>ETH Smart Wallet:</strong> {result.ethSmartWallet}</p>
-              <p><strong>Solana Address:</strong> {result.solanaAddress}</p>
-              <p><strong>Network:</strong> {result.network}</p>
+              <p>
+                <strong>Solana Wallet Address (USE THIS for receiving SOL/SPL tokens):</strong>{' '}
+                <a
+                  href={`https://www.orbmarkets.io/account/${result.solanaAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#667eea', wordBreak: 'break-all' }}
+                >
+                  {result.solanaAddress}
+                </a>
+              </p>
+              {result.solanaConfigurationAddress && (
+                <p>
+                  <strong>Swig Configuration Address (PDA):</strong>{' '}
+                  <a
+                    href={`https://www.orbmarkets.io/account/${result.solanaConfigurationAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#667eea', wordBreak: 'break-all' }}
+                  >
+                    {result.solanaConfigurationAddress}
+                  </a>
+                </p>
+              )}
+              <p style={{ marginTop: '1rem' }}><strong>Network:</strong> {result.network}</p>
               {result.transactionHashes.solana && (
                 <p>
                   <strong>Solana TX:</strong>{' '}
-                  <a href={`https://solscan.io/tx/${result.transactionHashes.solana}`} target="_blank" rel="noopener noreferrer">
+                  <a href={`https://www.orbmarkets.io/tx/${result.transactionHashes.solana}`} target="_blank" rel="noopener noreferrer">
                     {result.transactionHashes.solana}
                   </a>
                 </p>

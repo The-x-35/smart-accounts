@@ -10,6 +10,7 @@ A Next.js TypeScript application for creating and managing Swig smart wallets on
 - **JWT Authentication**: Secure API access with JWT tokens
 - **Fee Sponsorship**: Backend fee payer for gasless transactions
 - **Network Support**: Both mainnet and testnet support
+- **SPL Token Support**: Receive SPL tokens (USDC, etc.) from exchanges and wallets using System Program owned wallet accounts
 
 ## Getting Started
 
@@ -88,7 +89,8 @@ All API endpoints require JWT authentication via `Authorization: Bearer <token>`
   "data": {
     "ethAddress": "0x...",
     "ethSmartWallet": "0x...",
-    "solanaAddress": "...",
+    "solanaAddress": "...",  // System Program owned wallet address - USE THIS for receiving SOL/SPL tokens
+    "solanaConfigurationAddress": "...",  // PDA configuration account (for reference)
     "swigId": [1, 2, ...],
     "network": "mainnet",
     "transactionHashes": {
@@ -97,6 +99,30 @@ All API endpoints require JWT authentication via `Authorization: Bearer <token>`
   }
 }
 ```
+
+### Swig Wallet Architecture
+
+Swig wallets use a two-address architecture:
+
+1. **Swig Wallet Address** (`solanaAddress`): System Program owned account
+   - **USE THIS** for receiving SOL and SPL tokens (USDC, etc.)
+   - Can receive tokens from exchanges (Phantom, Solflare, etc.)
+   - Can be used as recipient in standard token transfers
+   - This is the address returned in API responses as `solanaAddress`
+
+2. **Swig Configuration Address** (`solanaConfigurationAddress`): PDA (Program Derived Account)
+   - Used internally for program logic and signing transactions
+   - Owned by the Swig program
+   - Not suitable for receiving tokens directly from exchanges
+   - Returned as `solanaConfigurationAddress` for reference
+
+**Important**: Always use the `solanaAddress` (wallet address) when:
+- Receiving SOL from exchanges or other wallets
+- Receiving SPL tokens (USDC, USDT, etc.)
+- Sharing your wallet address with others
+- Setting up token accounts
+
+The configuration address is used automatically by Swig for signing transactions - you don't need to manage it directly.
 
 ### Create Multisig
 

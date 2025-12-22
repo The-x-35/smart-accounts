@@ -50,7 +50,8 @@ export async function POST(
       data: {
         ethAddress,
         ethSmartWallet: zerodevResult.address,
-        solanaAddress: swigResult.address,
+        solanaAddress: swigResult.walletAddress, // System Program owned account - USE THIS for receiving SOL/SPL tokens
+        solanaConfigurationAddress: swigResult.address, // PDA configuration account (for reference)
         swigId: swigResult.id,
         network,
         transactionHashes: {

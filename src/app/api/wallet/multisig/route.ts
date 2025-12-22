@@ -89,7 +89,8 @@ export async function POST(
           network as Network
         );
         result.solanaMultisig = {
-          address: solanaMultisig.address,
+          address: solanaMultisig.walletAddress, // System Program owned account - USE THIS for receiving SOL/SPL tokens
+          configurationAddress: solanaMultisig.address, // PDA configuration account (for reference)
           threshold: solanaMultisig.requiredSignatures,
           signers: solanaMultisig.signers.map(s => s.evmAddress),
           transactionHash: solanaMultisig.transactionSignature,

@@ -37,6 +37,8 @@ function DashboardContent() {
         <Link href="/create-wallet">Create Wallet</Link>
         <Link href="/create-multisig">Create Multisig</Link>
         <Link href="/send-transaction">Send Transaction</Link>
+        <Link href="/swap">Jupiter Swap</Link>
+        <Link href="/swap/relay">Relay Swap</Link>
       </nav>
 
       <div className="card">
@@ -50,6 +52,12 @@ function DashboardContent() {
           </Link>
           <Link href="/send-transaction" className="btn" style={{ textAlign: 'center', display: 'block' }}>
             Send Transaction
+          </Link>
+          <Link href="/swap" className="btn" style={{ textAlign: 'center', display: 'block' }}>
+            Jupiter Swap
+          </Link>
+          <Link href="/swap/relay" className="btn" style={{ textAlign: 'center', display: 'block' }}>
+            Relay Swap
           </Link>
         </div>
       </div>
@@ -70,6 +78,26 @@ function DashboardContent() {
           <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/wallet/send</h4>
           <p style={{ color: '#666', fontSize: '0.9rem' }}>
             Send ETH or SOL transactions from smart wallets.
+          </p>
+
+          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>GET /api/swap/quote</h4>
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>
+            Get swap quotes from Jupiter for token swaps.
+          </p>
+
+          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/swap/execute</h4>
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>
+            Execute token swaps using Swig wallets with Jupiter.
+          </p>
+
+          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/swap/relay/quote</h4>
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>
+            Get swap quotes from Relay for token swaps.
+          </p>
+
+          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/swap/relay/execute</h4>
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>
+            Execute token swaps using Swig wallets with Relay.
           </p>
         </div>
       </div>

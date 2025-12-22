@@ -1,12 +1,14 @@
 export interface SwigWalletResult {
-  address: string;
+  address: string; // PDA configuration account (for backward compatibility)
+  walletAddress: string; // System Program owned account - USE THIS for receiving SOL/SPL tokens
   id: number[];
   transactionSignature: string;
   explorerUrl: string;
 }
 
 export interface SwigMultisigResult {
-  address: string;
+  address: string; // PDA configuration account (for backward compatibility)
+  walletAddress: string; // System Program owned account - USE THIS for receiving SOL/SPL tokens
   id: number[];
   totalSigners: number;
   requiredSignatures: number;

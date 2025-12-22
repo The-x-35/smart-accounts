@@ -13,8 +13,21 @@ import {
   fetchSwig,
   getSignInstructions,
   getSigningFnForSecp256k1PrivateKey,
-  getSwigWalletAddress,
+  getSwigWalletAddress, // Auto-detects v1/v2 and returns correct address (like demo)
+  SWIG_PROGRAM_ADDRESS,
 } from '@swig-wallet/classic';
+// Try to import internal functions for manual instruction construction
+let getSignInstructionContext: any;
+let getInstructionsFromContext: any;
+try {
+  // These might not be exported, but we'll try
+  const swigLib = require('@swig-wallet/lib');
+  getSignInstructionContext = swigLib.getSignInstructionContext;
+  getInstructionsFromContext = swigLib.getInstructionsFromContext;
+} catch (e) {
+  // If not available, we'll use a different approach
+  console.warn('Could not import internal Swig SDK functions, will use alternative approach');
+}
 import { createJupiterApiClient } from '@jup-ag/api';
 import { privateKeyToAccount } from 'viem/accounts';
 import { hexToBytes } from 'viem';
@@ -22,6 +35,7 @@ import { Network } from '@/types/api';
 import { getSolanaRpc } from '@/lib/config/networks';
 import { getFeePayer } from '@/lib/config/fee-payers';
 import { resolveTokenParam } from '@/lib/utils/token-resolver';
+import { Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
 
 export interface SwapResult {
   transactionSignature: string;
@@ -63,6 +77,98 @@ function relayInstructionToTransactionInstruction(instruction: any): Transaction
     })),
     data: Buffer.from(dataHex, 'hex'),
   });
+}
+
+/**
+ * Attempt to manually construct a single sign instruction with both signatures for multisig
+ * This is experimental and may not work if the Swig program's instruction format is different
+ * 
+ * WARNING: This is a best-effort attempt without knowing the exact Swig instruction format.
+ * The Swig program might require a specific format that we don't have access to.
+ */
+async function constructCombinedMultisigSignInstruction(
+  swig: any,
+  rootRole: any,
+  secondRole: any,
+  swapInstructions: TransactionInstruction[],
+  rootSigningFn: any,
+  secondSigningFn: any,
+  currentSlot: bigint,
+  payer: PublicKey,
+  swigAddress: PublicKey
+): Promise<TransactionInstruction[]> {
+  console.log(`\n=== ATTEMPTING MANUAL CONSTRUCTION OF COMBINED SIGN INSTRUCTION ===`);
+  
+  // First, get individual sign instructions to understand the structure
+  const rootSignInstructions = await getSignInstructions(
+    swig,
+    rootRole.id,
+    swapInstructions,
+    false,
+    {
+      currentSlot,
+      signingFn: rootSigningFn,
+      payer,
+    }
+  );
+  
+  const secondSignInstructions = await getSignInstructions(
+    swig,
+    secondRole.id,
+    swapInstructions,
+    false,
+    {
+      currentSlot,
+      signingFn: secondSigningFn,
+      payer,
+    }
+  );
+  
+  if (rootSignInstructions.length === 0 || secondSignInstructions.length === 0) {
+    console.warn('Could not get sign instructions for both roles, falling back to separate instructions');
+    return [...rootSignInstructions, ...secondSignInstructions];
+  }
+  
+  const rootIx = rootSignInstructions[0];
+  const secondIx = secondSignInstructions[0];
+  
+  // Analyze the instruction data structure
+  console.log(`Root instruction data: ${rootIx.data.length} bytes`);
+  console.log(`Second instruction data: ${secondIx.data.length} bytes`);
+  console.log(`Root instruction keys: ${rootIx.keys.length}`);
+  console.log(`Second instruction keys: ${secondIx.keys.length}`);
+  
+  // Log first few bytes of instruction data to understand structure
+  const rootDataHex = Array.from(rootIx.data.slice(0, Math.min(64, rootIx.data.length)))
+    .map(b => b.toString(16).padStart(2, '0')).join(' ');
+  const secondDataHex = Array.from(secondIx.data.slice(0, Math.min(64, secondIx.data.length)))
+    .map(b => b.toString(16).padStart(2, '0')).join(' ');
+  console.log(`Root instruction data (first 64 bytes): ${rootDataHex}`);
+  console.log(`Second instruction data (first 64 bytes): ${secondDataHex}`);
+  
+  // CRITICAL: Without the exact Swig instruction format, manually constructing
+  // a combined instruction is extremely risky. The instruction data format is
+  // not publicly documented, and attempting to parse and combine it could result
+  // in invalid instructions that fail on-chain.
+  //
+  // The Swig program might actually expect TWO separate sign_v2 instructions
+  // (one for each role), not a single combined instruction. The "Transaction
+  // signature verification failure" error might be due to a different issue:
+  // - The signatures might not be for the same transaction message
+  // - The instruction order might be wrong
+  // - The account keys might be incorrect
+  // - The Swig program might have a bug with multisig sign_v2
+  //
+  // Since we cannot safely construct a combined instruction without the exact format,
+  // we'll return both instructions separately. If this continues to fail, we may
+  // need to contact the Swig team for guidance or check if there's a different
+  // SDK function for multisig.
+  
+  console.log(`\nWARNING: Manual construction of combined instruction is not safe without exact format.`);
+  console.log(`Returning both sign instructions separately.`);
+  console.log(`If this fails, the issue might be elsewhere (signature format, instruction order, etc.)`);
+  
+  return [...rootSignInstructions, ...secondSignInstructions];
 }
 
 /**
@@ -110,8 +216,63 @@ export async function executeSwapWithSwig(
   // Fetch Swig account
   const swig = await fetchSwig(connection, swigAddress);
 
-  // Get the wallet address (System Program owned account for receiving tokens)
+  // Get wallet address from Swig account - use getSwigWalletAddress (like in demo)
+  // This auto-detects v1/v2 and returns the correct address
   const walletAddress = await getSwigWalletAddress(swig);
+  
+  // Check account version
+  const accountVersion = (swig as any).accountVersion?.() || 'v1';
+  
+  // Check if it's a multisig wallet (has more than 1 role)
+  const allRoles = swig.roles || [];
+  const isMultisig = allRoles.length > 1;
+  
+  console.log(`\n=== WALLET INFO ===`);
+  console.log(`Account version: ${accountVersion}`);
+  console.log(`Swig PDA (config): ${swigAddress.toBase58()}`);
+  console.log(`Wallet address: ${walletAddress.toBase58()}`);
+  console.log(`Is multisig: ${isMultisig}`);
+  console.log(`Total roles: ${allRoles.length}`);
+  
+  // Just use the wallet address we got - proceed with swap
+  // Don't try to migrate - user said they already migrated
+  console.log(`\n=== PROCEEDING WITH SWAP ===`);
+  console.log(`Using wallet address: ${walletAddress.toBase58()}`);
+  
+  // Skip all migration logic - just proceed with swap
+  return await continueSwapWithV2Wallet(
+    swig,
+    walletAddress,
+    swigAddress,
+    evmAccount,
+    formattedPrivateKey,
+    secondEvmPrivateKey,
+    inputToken,
+    outputToken,
+    amount,
+    network,
+    useJitoBundle,
+    connection
+  );
+}
+
+/**
+ * Continue swap execution with v2 wallet
+ */
+async function continueSwapWithV2Wallet(
+  swig: any,
+  walletAddress: PublicKey,
+  swigAddress: PublicKey,
+  evmAccount: any,
+  formattedPrivateKey: string,
+  secondEvmPrivateKey: string | undefined,
+  inputToken: string,
+  outputToken: string,
+  amount: string,
+  network: Network,
+  useJitoBundle: boolean,
+  connection: Connection
+): Promise<SwapResult> {
 
   // Find the role for this EVM address
   const rootRole = swig.findRolesBySecp256k1SignerAddress(evmAccount.address)[0];
@@ -141,95 +302,165 @@ export async function executeSwapWithSwig(
 
   // Step 1: Get quote from Jupiter using API client
   // Use native SOL mint for quotes - Jupiter will handle wrapping
+  // Lower maxAccounts to force simpler routes that won't exceed compute limits
   const jupiter = createJupiterApiClient();
   const quote = await jupiter.quoteGet({
     inputMint: inputResolved.mint,
     outputMint: outputResolved.mint,
     amount: scaledAmount,
     slippageBps: 50,
-    maxAccounts: 64, // Account for Swig's overhead
+    maxAccounts: 24, // Reduced from 64 to force simpler routes (avoid CU limit issues)
+    restrictIntermediateTokens: true, // Restrict intermediate tokens to avoid complex multi-hop routes
   });
 
-  // Step 2: Get swap instructions from Jupiter
-  // Use walletAddress (System Program owned) for token account operations
-  // Swig will still sign using the PDA (swigAddress) via getSignInstructions
+  // Step 2: Get swap instructions from Jupiter (exactly like demo)
+  // Use walletAddress (System Program owned) as userPublicKey - Jupiter will generate instructions with this address
+  // Swig will sign using the PDA (swigAddress) via getSignInstructions
   const swapInstructionsRes = await jupiter.swapInstructionsPost({
     swapRequest: {
       quoteResponse: quote,
-      userPublicKey: walletAddress.toBase58(), // Use wallet address for token accounts
-      wrapAndUnwrapSol: true, // Let Jupiter handle wrapping - Swig should handle the SystemProgram transfers
+      userPublicKey: walletAddress.toBase58(), // Use System Program owned wallet address (like demo)
+      wrapAndUnwrapSol: true, // Let Jupiter handle wrapping
       useSharedAccounts: true,
     },
   });
 
-  // Step 3: Convert Jupiter instructions to TransactionInstruction format
-  // Separate setup instructions and swap instruction
-  const setupInstructions: TransactionInstruction[] = (swapInstructionsRes.setupInstructions || []).map(
-    toTransactionInstruction
-  );
-  const swapInstruction = toTransactionInstruction(swapInstructionsRes.swapInstruction);
-
-  // Filter out any SystemProgram transfer instructions that use Swig address as 'from'
-  // Swig accounts are PDAs and can't be used directly in SystemProgram transfers
-  // This can happen in setup instructions or in the swap instruction itself
-  const filterSystemProgramTransfers = (instructions: TransactionInstruction[]): TransactionInstruction[] => {
-    return instructions.filter((ix) => {
-      // Check if it's a SystemProgram instruction
-      if (ix.programId.equals(SystemProgram.programId)) {
-        // SystemProgram transfers have the 'from' account as the first writable signer
-        // Check all keys to see if Swig address is used as a signer in a transfer
-        const swigKey = ix.keys.find((key) => key.pubkey.equals(swigAddress));
-        if (swigKey && swigKey.isSigner) {
-          console.warn('Filtering out SystemProgram instruction that uses Swig account as signer (PDA cannot be used in SystemProgram transfers)');
-          console.warn('Instruction keys:', ix.keys.map(k => ({ pubkey: k.pubkey.toBase58(), isSigner: k.isSigner, isWritable: k.isWritable })));
-          return false;
-        }
-      }
-      return true;
-    });
-  };
-
-  // Debug: Log all instructions before filtering
-  console.log('Setup instructions count:', setupInstructions.length);
-  console.log('Swap instruction program:', swapInstruction.programId.toBase58());
-  console.log('Swig address:', swigAddress.toBase58());
-
-  const filteredSetupInstructions = filterSystemProgramTransfers(setupInstructions);
-  const filteredSwapInstructions = filterSystemProgramTransfers([swapInstruction]);
-  
-  console.log('Filtered setup instructions count:', filteredSetupInstructions.length);
-  console.log('Filtered swap instructions count:', filteredSwapInstructions.length);
-
-  // Combine all instructions that need to be signed by Swig
+  // Step 3: Convert Jupiter instructions to TransactionInstruction format (exactly like demo)
+  // Combine setup and swap instructions - NO filtering or replacement needed
+  // Jupiter already uses walletAddress since we passed it as userPublicKey
   const swapInstructions: TransactionInstruction[] = [
-    ...filteredSetupInstructions,
-    ...filteredSwapInstructions,
+    ...(swapInstructionsRes.setupInstructions || []).map(toTransactionInstruction),
+    toTransactionInstruction(swapInstructionsRes.swapInstruction),
   ];
 
-  // Step 4: Sign instructions with Swig
+  // Step 4: Sign instructions with Swig (following demo pattern)
   const feePayer = getFeePayer(network);
   const privateKeyBytes = hexToBytes(formattedPrivateKey as `0x${string}`);
   const signingFn = getSigningFnForSecp256k1PrivateKey(privateKeyBytes);
 
-  // Get current slot
+  // Get current slot (required for Secp256k1 signing)
   const currentSlot = await connection.getSlot('finalized');
 
-  // Get signing instructions from Swig
-  // This wraps the Jupiter instructions so Swig can sign on behalf of the Swig address
-  const signInstructions = await getSignInstructions(
-    swig,
-    rootRole.id,
-    swapInstructions,
-    false, // no sub-account
-    {
-      currentSlot: BigInt(currentSlot),
-      signingFn,
-      payer: feePayer.solanaKeypair.publicKey,
+  // Check if multisig
+  const allRoles = swig.roles || [];
+  const isMultisig = allRoles.length > 1 && secondEvmPrivateKey;
+  
+  let signInstructions: TransactionInstruction[];
+  
+  if (isMultisig) {
+    // For multisig, get sign instructions for both roles (like demo but for two roles)
+    const formattedSecondKey = secondEvmPrivateKey.startsWith('0x')
+      ? secondEvmPrivateKey
+      : `0x${secondEvmPrivateKey}`;
+    const secondAccount = privateKeyToAccount(formattedSecondKey as `0x${string}`);
+    
+    // Validate that both addresses are different
+    if (evmAccount.address.toLowerCase() === secondAccount.address.toLowerCase()) {
+      throw new Error(
+        'Both private keys resolve to the same EVM address. ' +
+        'For a 2-of-2 multisig wallet, you need TWO DIFFERENT private keys.'
+      );
     }
-  );
+    
+    // Find the second role
+    const secondRole = swig.findRolesBySecp256k1SignerAddress(secondAccount.address)[0];
+    if (!secondRole) {
+      throw new Error('Second signer not found in multisig wallet.');
+    }
+    
+    const secondPrivateKeyBytes = hexToBytes(formattedSecondKey as `0x${string}`);
+    const secondSigningFn = getSigningFnForSecp256k1PrivateKey(secondPrivateKeyBytes);
+    
+    // Get sign instructions for both roles
+    // CRITICAL: For Secp256k1 (non-Ed25519), we MUST provide payer and currentSlot
+    // The demo uses Ed25519 which doesn't require these, but Secp256k1 does
+    const rootSignInstructions = await getSignInstructions(
+      swig,
+      rootRole.id,
+      swapInstructions,
+      false,
+      {
+        signingFn,
+        payer: feePayer.solanaKeypair.publicKey,
+        currentSlot: BigInt(currentSlot),
+      }
+    );
+    
+    const secondSignInstructions = await getSignInstructions(
+      swig,
+      secondRole.id,
+      swapInstructions,
+      false,
+      {
+        signingFn: secondSigningFn,
+        payer: feePayer.solanaKeypair.publicKey,
+        currentSlot: BigInt(currentSlot),
+      }
+    );
+    
+    // Combine both sign instructions (like demo but for multisig)
+    signInstructions = [...rootSignInstructions, ...secondSignInstructions];
+    
+    // Log instruction details for debugging
+    if (rootSignInstructions.length > 0) {
+      const rootIx = rootSignInstructions[0];
+      console.log(`Root sign instruction: program=${rootIx.programId.toBase58()}, keys=${rootIx.keys.length}, data=${rootIx.data.length} bytes`);
+      // Check if Swig PDA is in the keys
+      const hasPda = rootIx.keys.some(k => k.pubkey.equals(swigAddress));
+      console.log(`  Contains Swig PDA: ${hasPda}`);
+      if (rootIx.keys.length > 0) {
+        console.log(`  First key: ${rootIx.keys[0].pubkey.toBase58()}, isSigner=${rootIx.keys[0].isSigner}`);
+      }
+    }
+    if (secondSignInstructions.length > 0) {
+      const secondIx = secondSignInstructions[0];
+      console.log(`Second sign instruction: program=${secondIx.programId.toBase58()}, keys=${secondIx.keys.length}, data=${secondIx.data.length} bytes`);
+      // Check if Swig PDA is in the keys
+      const hasPda = secondIx.keys.some(k => k.pubkey.equals(swigAddress));
+      console.log(`  Contains Swig PDA: ${hasPda}`);
+      if (secondIx.keys.length > 0) {
+        console.log(`  First key: ${secondIx.keys[0].pubkey.toBase58()}, isSigner=${secondIx.keys[0].isSigner}`);
+      }
+    }
+    
+    // NOTE: If this still fails, the Swig program likely requires a single sign instruction
+    // with both signatures embedded. This would require manually constructing the instruction
+    // by understanding the Swig program's instruction format (sign_v2 discriminator + data structure).
+    // Alternatively, we might need to contact the Swig team for guidance on multisig signing with sign_v2.
+  } else {
+    // Single signer wallet
+    // CRITICAL: For Secp256k1 (non-Ed25519), we MUST provide payer and currentSlot
+    // The demo uses Ed25519 which doesn't require these, but Secp256k1 does
+    signInstructions = await getSignInstructions(
+      swig,
+      rootRole.id,
+      swapInstructions,
+      false,
+      {
+        signingFn,
+        payer: feePayer.solanaKeypair.publicKey,
+        currentSlot: BigInt(currentSlot),
+      }
+    );
+  }
+  
+  console.log(`\n=== SWIG SIGN INSTRUCTIONS ===`);
+  console.log(`Sign instructions count: ${signInstructions.length}`);
+  signInstructions.forEach((ix, idx) => {
+    console.log(`Sign Instruction ${idx}:`);
+    console.log(`  Program: ${ix.programId.toBase58()}`);
+    if (ix.programId.equals(SystemProgram.programId)) {
+      console.log(`  *** SYSTEM PROGRAM IN SIGN INSTRUCTIONS ***`);
+      ix.keys.forEach((key, keyIdx) => {
+        const isPda = key.pubkey.equals(swigAddress);
+        const isWallet = key.pubkey.equals(walletAddress);
+        console.log(`    [${keyIdx}] ${key.pubkey.toBase58()} - isSigner: ${key.isSigner}, isWritable: ${key.isWritable}, ${isPda ? '*** PDA ***' : ''} ${isWallet ? '*** WALLET ***' : ''}`);
+      });
+    }
+  });
 
-  // Step 5: Fetch address lookup tables
-  const lookupTables: AddressLookupTableAccount[] = await Promise.all(
+  // Step 5: Fetch address lookup tables (exactly like demo)
+  const lookupTables = await Promise.all(
     (swapInstructionsRes.addressLookupTableAddresses || []).map(async (addr) => {
       const res = await connection.getAddressLookupTable(new PublicKey(addr));
       if (!res.value) {
@@ -239,47 +470,79 @@ export async function executeSwapWithSwig(
     })
   );
 
-  // Step 6: Create compute budget instructions (OUTSIDE of Swig-signed instructions)
-  // These must be added separately and not signed by Swig
-  const computeBudgetInstructions = [
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 150_000 }),
+  // Step 6: Build versioned transaction (exactly like demo)
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+  
+  // Outer instructions (compute budget) - increased limit to handle complex swaps
+  // Even with simpler routes, we need higher CU limit for Swig overhead
+  const outerIxs = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), // Increased from 150k to 400k
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50 }),
   ];
 
-  // Step 7: Build versioned transaction
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
-
-  // Combine compute budget (outer) + Swig-signed instructions
-  const allInstructions = [...computeBudgetInstructions, ...signInstructions];
-
-  // Create versioned transaction message
+  // Create versioned transaction message (exactly like demo)
   const messageV0 = new TransactionMessage({
     payerKey: feePayer.solanaKeypair.publicKey,
     recentBlockhash: blockhash,
-    instructions: allInstructions,
+    instructions: [...outerIxs, ...signInstructions],
   }).compileToV0Message(lookupTables);
 
-  // Create and sign versioned transaction
+  // Create and sign versioned transaction (exactly like demo)
   const tx = new VersionedTransaction(messageV0);
   tx.sign([feePayer.solanaKeypair]);
 
-  // Step 8: Send transaction
-  let signature: string;
-  
-  if (useJitoBundle) {
-    // TODO: Implement Jito bundle support
-    // For now, fall back to regular transaction
-    console.warn('Jito bundle requested but not fully implemented, using regular transaction');
-  }
-
-  // Send the transaction
-  signature = await connection.sendTransaction(tx, {
-    skipPreflight: false,
-    preflightCommitment: 'confirmed',
-    maxRetries: 3,
+  // Log transaction structure for debugging
+  console.log(`\n=== TRANSACTION STRUCTURE ===`);
+  console.log(`Total instructions: ${outerIxs.length + signInstructions.length}`);
+  console.log(`Compute budget instructions: ${outerIxs.length}`);
+  console.log(`Sign instructions: ${signInstructions.length}`);
+  signInstructions.forEach((ix, idx) => {
+    console.log(`  Sign Ix ${idx}: Program=${ix.programId.toBase58()}, keys=${ix.keys.length}`);
+    if (ix.programId.equals(SystemProgram.programId)) {
+      console.log(`    *** SYSTEM PROGRAM INSTRUCTION IN SIGN INSTRUCTIONS ***`);
+      ix.keys.forEach((key, keyIdx) => {
+        console.log(`      [${keyIdx}] ${key.pubkey.toBase58()} - isSigner=${key.isSigner}, isWritable=${key.isWritable}`);
+      });
+    }
   });
 
-  // Confirm transaction
+  // Simulate transaction first to get detailed error logs
+  try {
+    const simulation = await connection.simulateTransaction(tx, {
+      replaceRecentBlockhash: true,
+      sigVerify: false,
+    });
+    
+    if (simulation.value.err) {
+      console.error('\n=== SIMULATION ERROR ===');
+      console.error('Error:', JSON.stringify(simulation.value.err, null, 2));
+      console.error('Logs:', simulation.value.logs);
+      if (simulation.value.logs) {
+        simulation.value.logs.forEach((log, idx) => {
+          console.error(`  [${idx}] ${log}`);
+        });
+      }
+      throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}. Logs: ${simulation.value.logs?.join('\n') || 'No logs'}`);
+    }
+    
+    console.log('\n=== SIMULATION SUCCESS ===');
+    console.log(`Compute units used: ${simulation.value.unitsConsumed}`);
+  } catch (simError: any) {
+    console.error('\n=== SIMULATION EXCEPTION ===');
+    console.error('Error:', simError.message);
+    if (simError.logs) {
+      console.error('Logs:', simError.logs);
+    }
+    throw simError;
+  }
+
+  // Step 7: Send transaction (exactly like demo)
+  const signature = await connection.sendTransaction(tx, {
+    skipPreflight: true, // Like demo
+    preflightCommitment: 'confirmed',
+  });
+  
+  // Confirm transaction (exactly like demo)
   const result = await connection.confirmTransaction({
     signature,
     blockhash,
@@ -287,6 +550,25 @@ export async function executeSwapWithSwig(
   });
 
   if (result.value.err) {
+    // Try to get transaction logs for more details
+    try {
+      const txDetails = await connection.getTransaction(signature, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
+      });
+      if (txDetails?.meta?.logMessages) {
+        console.error('\n=== TRANSACTION LOGS ===');
+        txDetails.meta.logMessages.forEach((log, idx) => {
+          console.error(`  [${idx}] ${log}`);
+        });
+      }
+      if (txDetails?.meta?.err) {
+        console.error('\n=== TRANSACTION ERROR ===');
+        console.error('Error:', JSON.stringify(txDetails.meta.err, null, 2));
+      }
+    } catch (logError) {
+      console.error('Could not fetch transaction logs:', logError);
+    }
     throw new Error(`Transaction failed: ${JSON.stringify(result.value.err)}`);
   }
 
@@ -365,9 +647,22 @@ export async function executeRelaySwapWithSwig(
   // Fetch Swig account
   const swig = await fetchSwig(connection, swigAddress);
 
-  // Get the wallet address (System Program owned account for receiving tokens)
+  // Check account version - ASSUME ONLY V2 WALLETS
+  const accountVersion = (swig as any).accountVersion?.() || 'v1';
+  
+  // For v2 accounts, we MUST use the System Program owned wallet address (not PDA)
+  if (accountVersion !== 'v2') {
+    throw new Error(`This swap function only supports v2 Swig wallets. Detected version: ${accountVersion}. Please migrate your wallet to v2 first.`);
+  }
+
+  // Get the wallet address (like demo)
   const walletAddress = await getSwigWalletAddress(swig);
   const recipientAddress = recipient || walletAddress.toBase58();
+  
+  console.log(`\n=== RELAY SWAP WALLET INFO ===`);
+  console.log(`Account version: ${accountVersion} (v2 required)`);
+  console.log(`Swig PDA (config): ${swigAddress.toBase58()} - DO NOT USE FOR TOKENS`);
+  console.log(`Wallet address (System Program owned): ${walletAddress.toBase58()} - USE THIS FOR TOKENS`);
 
   // Find the role for this EVM address
   const rootRole = swig.findRolesBySecp256k1SignerAddress(evmAccount.address)[0];
@@ -451,14 +746,44 @@ export async function executeRelaySwapWithSwig(
     relayInstructionToTransactionInstruction
   );
 
-  // Filter out any SystemProgram transfer instructions that use Swig address as 'from'
-  // Swig accounts are PDAs and can't be used directly in SystemProgram transfers
+  // Replace any references to the PDA (swigAddress) with the wallet address in instructions
+  const replacePdaWithWalletAddress = (instructions: TransactionInstruction[]): TransactionInstruction[] => {
+    return instructions.map((ix) => {
+      // Check if any key references the PDA
+      const hasPdaReference = ix.keys.some((key) => key.pubkey.equals(swigAddress));
+      
+      if (hasPdaReference) {
+        // Create a new instruction with PDA replaced by wallet address
+        const newKeys = ix.keys.map((key) => {
+          if (key.pubkey.equals(swigAddress)) {
+            console.log(`Replacing PDA ${swigAddress.toBase58()} with wallet address ${walletAddress.toBase58()} in Relay instruction`);
+            return {
+              ...key,
+              pubkey: walletAddress, // Replace PDA with wallet address
+            };
+          }
+          return key;
+        });
+        
+        return new TransactionInstruction({
+          programId: ix.programId,
+          keys: newKeys,
+          data: ix.data,
+        });
+      }
+      
+      return ix;
+    });
+  };
+
+  // Filter out any SystemProgram transfer instructions that use Swig PDA as 'from'
   const filterSystemProgramTransfers = (instructions: TransactionInstruction[]): TransactionInstruction[] => {
     return instructions.filter((ix) => {
       if (ix.programId.equals(SystemProgram.programId)) {
-        const swigKey = ix.keys.find((key) => key.pubkey.equals(swigAddress));
-        if (swigKey && swigKey.isSigner) {
-          console.warn('Filtering out SystemProgram instruction that uses Swig account as signer (PDA cannot be used in SystemProgram transfers)');
+        // Check if the first writable signer is the PDA (shouldn't happen after replacement, but double-check)
+        const firstWritableSigner = ix.keys.find((key) => key.isSigner && key.isWritable);
+        if (firstWritableSigner && firstWritableSigner.pubkey.equals(swigAddress)) {
+          console.warn('Filtering out SystemProgram instruction that uses Swig PDA as signer (PDA cannot be used in SystemProgram transfers)');
           return false;
         }
       }
@@ -466,7 +791,9 @@ export async function executeRelaySwapWithSwig(
     });
   };
 
-  const filteredInstructions = filterSystemProgramTransfers(swapInstructions);
+  // Replace PDA references with wallet address, then filter
+  const replacedInstructions = replacePdaWithWalletAddress(swapInstructions);
+  const filteredInstructions = filterSystemProgramTransfers(replacedInstructions);
 
   // Step 4: Sign instructions with Swig
   const feePayer = getFeePayer(network);
@@ -477,6 +804,9 @@ export async function executeRelaySwapWithSwig(
   const currentSlot = await connection.getSlot('finalized');
 
   // Get signing instructions from Swig
+  // For v2 accounts, this automatically uses sign_v2
+  console.log(`\n=== SIGNING WITH SWIG (v2) ===`);
+  console.log(`Using sign_v2 instruction (v2 account required)`);
   const signInstructions = await getSignInstructions(
     swig,
     rootRole.id,

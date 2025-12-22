@@ -163,24 +163,28 @@ function CreateMultisigContent() {
               <div className="card" style={{ marginTop: '1rem', background: 'white', padding: '1.5rem' }}>
                 <h4 style={{ marginTop: 0 }}>🟣 Solana Multisig Wallet</h4>
                 <div style={{ marginTop: '1rem' }}>
-                  <div style={{ marginBottom: '1rem', padding: '1rem', background: '#e8f5e9', borderRadius: '4px', border: '2px solid #4caf50' }}>
-                    <p style={{ margin: 0, fontWeight: 'bold', color: '#2e7d32' }}>
-                      ✅ Solana Wallet Address (USE THIS for receiving SOL/SPL tokens):
-                    </p>
-                    <p style={{ margin: '0.5rem 0 0 0', fontFamily: 'monospace', fontSize: '0.9rem', wordBreak: 'break-all' }}>
-                      <a 
-                        href={`https://www.orbmarkets.io/account/${result.solanaMultisig.address}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        style={{ color: '#2e7d32' }}
-                      >
-                        {result.solanaMultisig.address}
-                      </a>
-                    </p>
-                  </div>
+                  <p>
+                    <strong>Solana Wallet Address (USE THIS for receiving SOL/SPL tokens):</strong>{' '}
+                    <a 
+                      href={`https://www.orbmarkets.io/account/${result.solanaMultisig.address}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ color: '#667eea', wordBreak: 'break-all' }}
+                    >
+                      {result.solanaMultisig.address}
+                    </a>
+                  </p>
                   {result.solanaMultisig.configurationAddress && (
-                    <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
-                      <strong>Swig Configuration Address (PDA):</strong> {result.solanaMultisig.configurationAddress}
+                    <p>
+                      <strong>Swig Configuration Address (PDA):</strong>{' '}
+                      <a
+                        href={`https://www.orbmarkets.io/account/${result.solanaMultisig.configurationAddress}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#667eea', wordBreak: 'break-all' }}
+                      >
+                        {result.solanaMultisig.configurationAddress}
+                      </a>
                     </p>
                   )}
                   <p style={{ marginTop: '1rem' }}><strong>Threshold:</strong> {result.solanaMultisig.threshold} of {result.solanaMultisig.signers.length} signers required</p>

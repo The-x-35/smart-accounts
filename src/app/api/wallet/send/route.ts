@@ -129,12 +129,23 @@ export async function POST(
       // Convert amount from SOL to lamports
       const amountLamports = Math.floor(parseFloat(amount) * 1_000_000_000);
 
+      // Format second private key if provided (for multisig)
+      const formattedSecondKey = secondPrivateKey
+        ? (secondPrivateKey.startsWith('0x') ? secondPrivateKey : `0x${secondPrivateKey}`)
+        : undefined;
+
+      // Validate second private key if provided
+      if (secondPrivateKey && !isValidPrivateKey(secondPrivateKey)) {
+        throw new ValidationError('Invalid second private key format');
+      }
+
       const transferResult = await transferSOLWithSwig(
         formattedPrivateKey,
         swigId,
         recipient,
         amountLamports,
-        network as Network
+        network as Network,
+        formattedSecondKey // Pass second private key for multisig
       );
 
       result = {

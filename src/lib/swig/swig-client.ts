@@ -207,9 +207,17 @@ async function migrateSwigWallet(
     // Create and send transaction
     const transaction = new Transaction().add(...signInstructions);
     
+    // Set fee payer (required for simulation and execution)
+    transaction.feePayer = feePayer.solanaKeypair.publicKey;
+    
+    // Get recent blockhash (required for transaction)
+    const { blockhash } = await connection.getLatestBlockhash('finalized');
+    transaction.recentBlockhash = blockhash;
+    
     // Simulate first to get better error messages
+    // Note: Using deprecated API for Transaction, but it's the only way to simulate regular Transaction
     try {
-      const simulation = await connection.simulateTransaction(transaction);
+      const simulation = await connection.simulateTransaction(transaction, [feePayer.solanaKeypair]);
       if (simulation.value.err) {
         console.error('Migration simulation failed:', simulation.value.err);
         console.error('Simulation logs:', simulation.value.logs);
@@ -532,7 +540,8 @@ export async function createSwigMultisig(
   }
 
   // Get the wallet address (System Program owned account for receiving funds)
-  const walletAddress = await getSwigWalletAddress(updatedSwig);
+  // Use getSwigSystemAddress to get the correct system program address
+  const walletAddress = await getSwigSystemAddress(updatedSwig);
 
   return {
     address: swigAddress.toString(), // PDA configuration account
@@ -559,13 +568,15 @@ export async function createSwigMultisig(
 
 /**
  * Transfer SOL using Swig wallet
+ * Supports both single signer and 2-of-2 multisig wallets
  */
 export async function transferSOLWithSwig(
   evmPrivateKey: string,
   swigId: number[],
   recipient: string,
   amount: number, // in lamports
-  network: Network
+  network: Network,
+  secondEvmPrivateKey?: string // Optional, for multisig
 ): Promise<SwigTransferResult> {
   // Validate and format private key
   const formattedPrivateKey = evmPrivateKey.startsWith('0x')
@@ -586,10 +597,42 @@ export async function transferSOLWithSwig(
   // Fetch Swig account
   const swig = await fetchSwig(connection, swigAddress);
 
+  // Check account version and get wallet address
+  const accountVersion = (swig as any).accountVersion?.() || 'v1';
+  
+  // Get the wallet address (System Program owned for v2, PDA for v1)
+  let fromAddress: PublicKey;
+  if (accountVersion === 'v2') {
+    fromAddress = await getSwigSystemAddress(swig);
+    console.log(`Using v2 wallet address for transfer: ${fromAddress.toBase58()}`);
+  } else {
+    // For v1, use PDA (but this won't work for SPL tokens)
+    fromAddress = swigAddress;
+    console.warn(`Using v1 PDA for transfer (may not work for SPL tokens): ${fromAddress.toBase58()}`);
+  }
+
   // Find the role for this EVM address
   const rootRole = swig.findRolesBySecp256k1SignerAddress(evmAccount.address)[0];
   if (!rootRole) {
     throw new Error('No role found for this authority');
+  }
+
+  // Check if multisig and verify second signer if provided
+  const allRoles = swig.roles || [];
+  const isMultisig = allRoles.length > 1;
+  
+  if (isMultisig && secondEvmPrivateKey) {
+    const formattedSecondKey = secondEvmPrivateKey.startsWith('0x')
+      ? secondEvmPrivateKey
+      : `0x${secondEvmPrivateKey}`;
+    const secondAccount = privateKeyToAccount(formattedSecondKey as `0x${string}`);
+    const secondRole = swig.findRolesBySecp256k1SignerAddress(secondAccount.address)[0];
+    if (!secondRole) {
+      throw new Error('Second signer not found in multisig wallet. Please create multisig wallet first.');
+    }
+    console.log(`Multisig wallet detected: ${allRoles.length} signers, using both private keys`);
+  } else if (isMultisig && !secondEvmPrivateKey) {
+    console.warn(`Multisig wallet detected but second private key not provided. Transaction may fail if 2-of-2 multisig.`);
   }
 
   // Get fee payer
@@ -602,14 +645,16 @@ export async function transferSOLWithSwig(
   // Get current slot
   const currentSlot = await connection.getSlot('finalized');
 
-  // Create transfer instruction
+  // Create transfer instruction using the correct from address
   const transferInstruction = SystemProgram.transfer({
-    fromPubkey: swigAddress,
+    fromPubkey: fromAddress, // Use wallet address for v2, PDA for v1
     toPubkey: new PublicKey(recipient),
     lamports: amount,
   });
 
-  // Get signing instructions
+  // Get signing instructions (automatically uses sign_v2 for v2 accounts)
+  // For multisig, getSignInstructions should handle collecting both signatures
+  // if both signers are provided via the signing function
   const signInstructions = await getSignInstructions(
     swig,
     rootRole.id,

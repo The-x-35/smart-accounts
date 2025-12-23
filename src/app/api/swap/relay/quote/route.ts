@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateRequest } from '@/lib/auth/middleware';
 import { resolveTokenParam } from '@/lib/utils/token-resolver';
-import { getSwigAddressFromPrivateKey } from '@/lib/swig/swap-client';
+import { findSwigPda } from '@swig-wallet/classic';
+import { privateKeyToAccount } from 'viem/accounts';
 import {
   isValidPrivateKey,
   isValidAmount,
@@ -12,6 +13,30 @@ import { Network } from '@/types/api';
 
 const RELAY_API_URL = 'https://api.relay.link/quote';
 const SOLANA_CHAIN_ID = 792703809;
+
+/**
+ * Create deterministic Swig ID from EVM address
+ */
+function createDeterministicSwigId(evmAddress: string): Uint8Array {
+  const cleanAddress = evmAddress.startsWith('0x') ? evmAddress.slice(2) : evmAddress;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(cleanAddress);
+  
+  const hash = new Uint8Array(32);
+  let hashIndex = 0;
+  
+  for (let i = 0; i < data.length; i++) {
+    hash[hashIndex] ^= data[i];
+    hashIndex = (hashIndex + 1) % 32;
+  }
+  
+  for (let i = 0; i < data.length; i++) {
+    hash[hashIndex] ^= data[data.length - 1 - i];
+    hashIndex = (hashIndex + 1) % 32;
+  }
+  
+  return hash;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +58,16 @@ export async function POST(request: NextRequest) {
       throw new ValidationError('Private key is required');
     }
 
-    if (!isValidPrivateKey(privateKey)) {
+    // Trim and format private key before validation
+    const trimmedKey = privateKey.trim();
+    const formattedPrivateKey = trimmedKey.startsWith('0x') ? trimmedKey : `0x${trimmedKey}`;
+    
+    console.log('\n=== RELAY QUOTE API ===');
+    console.log('Received private key length:', privateKey?.length || 0);
+    console.log('Formatted private key length:', formattedPrivateKey.length);
+    
+    if (!isValidPrivateKey(formattedPrivateKey)) {
+      console.error('Invalid private key format');
       throw new ValidationError('Invalid private key format');
     }
 
@@ -53,11 +87,10 @@ export async function POST(request: NextRequest) {
       throw new ValidationError('Invalid network. Must be "mainnet" or "testnet"');
     }
 
-    // Format private key
-    const formattedPrivateKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-
-    // Get Swig wallet address from private key
-    const { swigAddress } = getSwigAddressFromPrivateKey(formattedPrivateKey);
+    // Get Swig address from private key (already formatted above)
+    const evmAccount = privateKeyToAccount(formattedPrivateKey as `0x${string}`);
+    const swigId = createDeterministicSwigId(evmAccount.address);
+    const swigAddress = findSwigPda(swigId);
     const recipientAddress = recipient || swigAddress.toBase58();
 
     // Resolve tokens

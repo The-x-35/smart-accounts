@@ -273,6 +273,8 @@ function CreateMultisigContent() {
         <Link href="/create-wallet">Create Wallet</Link>
         <Link href="/create-multisig">Create Multisig</Link>
         <Link href="/send-transaction">Send Transaction</Link>
+        <Link href="/swap">Jupiter Swap</Link>
+        <Link href="/swap/relay">Relay Swap</Link>
       </nav>
 
       <h1>Create Multisig Wallet</h1>

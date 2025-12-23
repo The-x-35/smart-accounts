@@ -79,13 +79,16 @@ export async function GET(request: Request) {
     const outputAmount = parseFloat(outAmount) / Math.pow(10, outputDecimals);
 
     return NextResponse.json({
-      inputAmount: parseFloat(amount),
-      inputToken: inputResolved.symbol,
-      outputAmount,
-      outputToken: outputResolved.symbol,
-      priceImpact: quoteData.priceImpactPct,
-      quote: quoteData,
-      timestamp: new Date().toISOString(),
+      success: true,
+      data: {
+        inputAmount: parseFloat(amount),
+        inputToken: inputResolved.symbol,
+        outputAmount,
+        outputToken: outputResolved.symbol,
+        priceImpact: quoteData.priceImpactPct,
+        quote: quoteData,
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error('Error fetching quote:', error);

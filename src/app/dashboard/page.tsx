@@ -62,45 +62,7 @@ function DashboardContent() {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: '1rem' }}>
-        <h3>API Documentation</h3>
-        <div style={{ marginTop: '1rem' }}>
-          <h4 style={{ marginBottom: '0.5rem' }}>POST /api/wallet/create</h4>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            Create ETH and Solana smart wallets from an Ethereum private key.
-          </p>
-
-          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/wallet/multisig</h4>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            Create 2-of-2 multisig wallets for ETH and/or Solana.
-          </p>
-
-          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/wallet/send</h4>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            Send ETH or SOL transactions from smart wallets.
-          </p>
-
-          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>GET /api/swap/quote</h4>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            Get swap quotes from Jupiter for token swaps.
-          </p>
-
-          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/swap/execute</h4>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            Execute token swaps using Swig wallets with Jupiter.
-          </p>
-
-          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/swap/relay/quote</h4>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            Get swap quotes from Relay for token swaps.
-          </p>
-
-          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>POST /api/swap/relay/execute</h4>
-          <p style={{ color: '#666', fontSize: '0.9rem' }}>
-            Execute token swaps using Swig wallets with Relay.
-          </p>
-        </div>
-      </div>
+    
     </div>
   );
 }

@@ -129,6 +129,9 @@ async function createSwigWalletFrontend(
     }
   }
 
+  // Fee payer public key (hardcoded)
+  const feePayerPubkey = new PublicKey('hciZb5onspShN7vhvGDANtavRp4ww3xMzfVECXo2BR4');
+
   // Create authority info
   const authorityInfo = createSecp256k1AuthorityInfo(evmAccount.publicKey);
 
@@ -138,11 +141,11 @@ async function createSwigWalletFrontend(
   // Get recent blockhash
   const { blockhash } = await connection.getLatestBlockhash('confirmed');
 
-  // Create Swig instruction (payer will be set by backend when signing)
+  // Create Swig instruction with actual fee payer
   const createSwigInstruction = await getCreateSwigInstruction({
     authorityInfo,
     id: swigId,
-    payer: PublicKey.default, // Placeholder - backend will set actual fee payer
+    payer: feePayerPubkey,
     actions: rootActions,
   });
 
@@ -150,7 +153,7 @@ async function createSwigWalletFrontend(
   const transaction = new Transaction();
   transaction.add(createSwigInstruction);
   transaction.recentBlockhash = blockhash;
-  transaction.feePayer = PublicKey.default; // Will be set by backend
+  transaction.feePayer = feePayerPubkey;
 
   // Serialize transaction and send to backend to sign
   const transactionBase64 = Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString('base64');

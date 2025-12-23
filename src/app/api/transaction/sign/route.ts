@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Transaction } from '@solana/web3.js';
+import { Transaction, PublicKey } from '@solana/web3.js';
 import { getFeePayer } from '@/lib/config/fee-payers';
 import { Network } from '@/types/api';
 import { sendAndConfirmTransaction } from '@solana/web3.js';
@@ -34,9 +34,10 @@ export async function POST(request: NextRequest) {
     // Deserialize transaction
     const transaction = Transaction.from(Buffer.from(transactionBase64, 'base64'));
 
-    // Set fee payer and recent blockhash
-    transaction.feePayer = feePayer.solanaKeypair.publicKey;
+    // Get fresh blockhash
     const { blockhash } = await connection.getLatestBlockhash('confirmed');
+
+    // Update blockhash (fee payer is already set in frontend)
     transaction.recentBlockhash = blockhash;
 
     // Sign and send transaction

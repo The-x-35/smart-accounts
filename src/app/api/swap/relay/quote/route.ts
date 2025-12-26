@@ -3,6 +3,7 @@ import { authenticateRequest } from '@/lib/auth/middleware';
 import { resolveTokenParam } from '@/lib/utils/token-resolver';
 import { findSwigPda } from '@swig-wallet/classic';
 import { privateKeyToAccount } from 'viem/accounts';
+import { PublicKey } from '@solana/web3.js';
 import {
   isValidPrivateKey,
   isValidAmount,
@@ -11,8 +12,11 @@ import {
 import { ValidationError, handleError } from '@/lib/utils/errors';
 import { Network } from '@/types/api';
 
-const RELAY_API_URL = 'https://api.relay.link/quote';
+const RELAY_API_URL = 'https://api.relay.link/quote/v2';
 const SOLANA_CHAIN_ID = 792703809;
+
+// Fee payer public key (hardcoded)
+const FEE_PAYER_PUBKEY = new PublicKey('hciZb5onspShN7vhvGDANtavRp4ww3xMzfVECXo2BR4');
 
 /**
  * Create deterministic Swig ID from EVM address
@@ -114,6 +118,7 @@ export async function POST(request: NextRequest) {
       referrer: 'relay.link',
       useDepositAddress: false,
       topupGas: false,
+      depositFeePayer: FEE_PAYER_PUBKEY.toBase58(),
     };
 
     console.log('Fetching Relay quote:', relayQuoteRequest);

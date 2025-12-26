@@ -197,6 +197,7 @@ async function executeRelaySwap(
     referrer: 'relay.link',
     useDepositAddress: false,
     topupGas: false,
+    depositFeePayer: feePayerPubkey.toBase58(),
   };
 
   const relayResponse = await fetch(RELAY_API_URL, {

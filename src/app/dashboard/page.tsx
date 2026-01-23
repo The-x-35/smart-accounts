@@ -37,6 +37,7 @@ function DashboardContent() {
         <Link href="/create-wallet">Create Wallet</Link>
         <Link href="/create-multisig">Create Multisig</Link>
         <Link href="/send-transaction">Send Transaction</Link>
+        <Link href="/private-send">Private Send</Link>
         <Link href="/swap">Jupiter Swap</Link>
         <Link href="/swap/relay">Relay Swap</Link>
       </nav>
